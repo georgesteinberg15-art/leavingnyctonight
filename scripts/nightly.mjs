@@ -59,8 +59,10 @@ try {
   await page.waitForFunction(() => window.leavingReady === true, null, { timeout: 120_000 });
   info = await page.evaluate(() => {
     const b = buildBulletin();
-    return { script: spokenScript(), caption: b.caption, dayName: b.dayName };
+    return { script: spokenScript(), caption: b.caption, dayName: b.dayName, ways: (b.rows || []).length };
   });
+  // Safety check: a night with no traffic readings (feed outage) gets no video.
+  if (info.ways < 3) throw new Error(`only ${info.ways} ways out had traffic data for ${date}; not making a video`);
   await writeFile(join(outDir, 'script.txt'), info.script + '\n');
   await writeFile(join(outDir, 'caption.txt'), info.caption + '\n');
   log('script:', info.script);
