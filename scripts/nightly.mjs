@@ -1,7 +1,8 @@
-// Makes the nightly Instagram video: records the site's 3–8pm replay in a headless browser,
-// gets the voiceover from ElevenLabs, and merges them with ffmpeg.
+// Makes the nightly Instagram video: draws the site's 3–8pm replay frame by frame in a headless
+// browser (live recording drops frames on machines without a graphics card), gets the
+// voiceover from ElevenLabs, and encodes both with ffmpeg.
 //
-//   node scripts/nightly.mjs --date 2026-10-20 --out _site/tonight [--no-mux]
+//   node scripts/nightly.mjs --date 2026-10-20 --out _site/tonight
 //
 // Env: ELEVENLABS_API_KEY (optional — without it the video is made silent).
 // Writes into --out: <name>.mp4, caption.txt, script.txt, meta.json.
@@ -9,11 +10,12 @@
 import { chromium } from 'playwright';
 import { createServer } from 'node:http';
 import { readFile, writeFile, mkdir } from 'node:fs/promises';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawn } from 'node:child_process';
 import { extname, join, resolve } from 'node:path';
 
 const VOICE_ID = 'onwK4e9ZLuTAKqWW03F9'; // Daniel
 const VOICE_LEAD = 0.4, VOICE_TAIL = 0.8; // seconds of quiet before / after the voice
+const FPS = 30, BATCH = 15;
 
 const arg = (name, dflt) => {
   const i = process.argv.indexOf(`--${name}`);
@@ -24,6 +26,8 @@ const date = arg('date', nyToday);
 const outDir = resolve(arg('out', 'tonight'));
 const siteDir = resolve(new URL('..', import.meta.url).pathname);
 const log = (...a) => console.log(`[nightly ${date}]`, ...a);
+const duration = (f) => parseFloat(execFileSync('ffprobe',
+  ['-v', 'error', '-show_entries', 'format=duration', '-of', 'csv=p=0', f]).toString());
 
 // --- serve the site locally so the page runs this checkout's code ---
 const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json' };
@@ -40,91 +44,86 @@ const server = createServer(async (req, res) => {
 await new Promise((r) => server.listen(0, '127.0.0.1', r));
 const port = server.address().port;
 
-// --- record the replay in the page ---
+// --- open the page ---
 log('opening site');
+await mkdir(outDir, { recursive: true });
 const browser = await chromium.launch({
-  args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist', '--autoplay-policy=no-user-gesture-required'],
+  args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'],
 });
-let result;
+const name = `leavingnyctonight-${date}.mp4`;
+let info, voicePath = null;
 try {
   const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
   page.on('console', (m) => m.type() === 'error' && log('page error:', m.text()));
   await page.goto(`http://127.0.0.1:${port}/?date=${date}`);
   await page.waitForFunction(() => window.leavingReady === true, null, { timeout: 120_000 });
-  log('recording');
-  result = await page.evaluate(async () => {
-    await makeVideo();
-    const blob = await fetch(document.getElementById('postVideo').src).then((r) => r.blob());
-    const b64 = await new Promise((res) => {
-      const fr = new FileReader();
-      fr.onload = () => res(fr.result.split(',')[1]);
-      fr.readAsDataURL(blob);
-    });
+  info = await page.evaluate(() => {
     const b = buildBulletin();
-    return { b64, type: blob.type, script: spokenScript(), caption: b.caption, dayName: b.dayName };
-  }, null);
+    return { script: spokenScript(), caption: b.caption, dayName: b.dayName };
+  });
+  await writeFile(join(outDir, 'script.txt'), info.script + '\n');
+  await writeFile(join(outDir, 'caption.txt'), info.caption + '\n');
+  log('script:', info.script);
+
+  // --- voiceover ---
+  if (process.env.ELEVENLABS_API_KEY) {
+    const r = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${VOICE_ID}?output_format=mp3_44100_128`, {
+      method: 'POST',
+      headers: { 'xi-api-key': process.env.ELEVENLABS_API_KEY, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        text: info.script,
+        model_id: 'eleven_multilingual_v2',
+        voice_settings: { stability: 0.45, similarity_boost: 0.8, style: 0.3, use_speaker_boost: true },
+      }),
+    });
+    if (r.ok) {
+      voicePath = join(outDir, 'voice.mp3');
+      await writeFile(voicePath, Buffer.from(await r.arrayBuffer()));
+      log('voice ok');
+    } else {
+      log('voice failed, making a silent video:', r.status, (await r.text()).slice(0, 200));
+    }
+  } else {
+    log('no ELEVENLABS_API_KEY, making a silent video');
+  }
+
+  // --- draw every frame and encode ---
+  log('drawing maps');
+  const animMs = await page.evaluate(async () => { window.__vid = await prepareVideo(); return window.__vid.totalMs; });
+  const total = Math.max(animMs / 1000, voicePath ? VOICE_LEAD + duration(voicePath) + VOICE_TAIL : 0);
+  const speed = animMs / (total * 1000); // < 1 slows the replay to the narrator's pace
+  const nFrames = Math.round(total * FPS);
+
+  const args = ['-y', '-loglevel', 'error', '-f', 'image2pipe', '-framerate', String(FPS), '-c:v', 'mjpeg', '-i', '-'];
+  if (voicePath) args.push('-i', voicePath, '-filter_complex', `[1:a]adelay=${VOICE_LEAD * 1000}:all=1,apad[a]`, '-map', '0:v', '-map', '[a]', '-c:a', 'aac', '-b:a', '160k');
+  args.push('-c:v', 'libx264', '-preset', 'medium', '-crf', '20', '-profile:v', 'high', '-pix_fmt', 'yuv420p',
+    '-t', total.toFixed(2), '-movflags', '+faststart', join(outDir, name));
+  const ff = spawn('ffmpeg', args, { stdio: ['pipe', 'inherit', 'inherit'] });
+  const ffDone = new Promise((res, rej) => ff.on('close', (c) => (c === 0 ? res() : rej(new Error(`ffmpeg exit ${c}`)))));
+
+  log(`encoding ${nFrames} frames (${total.toFixed(1)}s)`);
+  for (let start = 0; start < nFrames; start += BATCH) {
+    const jpgs = await page.evaluate(({ start, n, speed, fps }) => {
+      const out = [];
+      for (let i = start; i < start + n; i++) {
+        window.__vid.drawAt((i / fps) * 1000 * speed);
+        out.push(window.__vid.canvas.toDataURL('image/jpeg', 0.92).split(',')[1]);
+      }
+      return out;
+    }, { start, n: Math.min(BATCH, nFrames - start), speed, fps: FPS });
+    for (const j of jpgs) {
+      if (!ff.stdin.write(Buffer.from(j, 'base64'))) await new Promise((r) => ff.stdin.once('drain', r));
+    }
+  }
+  ff.stdin.end();
+  await ffDone;
+  log(`video ${name}: ${duration(join(outDir, name)).toFixed(1)}s`);
 } finally {
   await browser.close();
   server.close();
 }
 
-await mkdir(outDir, { recursive: true });
-const rawPath = join(outDir, result.type.includes('mp4') ? 'raw.mp4' : 'raw.webm');
-await writeFile(rawPath, Buffer.from(result.b64, 'base64'));
-await writeFile(join(outDir, 'script.txt'), result.script + '\n');
-await writeFile(join(outDir, 'caption.txt'), result.caption + '\n');
-log('script:', result.script);
-
-// --- voiceover ---
-let voicePath = null;
-if (process.env.ELEVENLABS_API_KEY) {
-  const r = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${VOICE_ID}?output_format=mp3_44100_128`, {
-    method: 'POST',
-    headers: { 'xi-api-key': process.env.ELEVENLABS_API_KEY, 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      text: result.script,
-      model_id: 'eleven_multilingual_v2',
-      voice_settings: { stability: 0.45, similarity_boost: 0.8, style: 0.3, use_speaker_boost: true },
-    }),
-  });
-  if (r.ok) {
-    voicePath = join(outDir, 'voice.mp3');
-    await writeFile(voicePath, Buffer.from(await r.arrayBuffer()));
-    log('voice ok');
-  } else {
-    log('voice failed, making a silent video:', r.status, (await r.text()).slice(0, 200));
-  }
-} else {
-  log('no ELEVENLABS_API_KEY, making a silent video');
-}
-
-// --- merge ---
-const name = `leavingnyctonight-${date}.mp4`;
-if (!process.argv.includes('--no-mux')) {
-  const dur = (f) => parseFloat(execFileSync('ffprobe', ['-v', 'error', '-show_entries', 'format=duration', '-of', 'csv=p=0', f]).toString());
-  // MediaRecorder files often have no duration in the header, and a slow machine records fewer
-  // frames than asked for, so read the real length from the last frame's timestamp.
-  const stamps = execFileSync('ffprobe', ['-v', 'error', '-select_streams', 'v:0',
-    '-show_entries', 'packet=pts_time', '-of', 'csv=p=0', rawPath]).toString()
-    .split('\n').map(parseFloat).filter(Number.isFinite);
-  const vdur = Math.max(...stamps);
-  log(`recorded ${stamps.length} frames over ${vdur.toFixed(1)}s`);
-  const total = voicePath ? Math.max(vdur, VOICE_LEAD + dur(voicePath) + VOICE_TAIL) : vdur;
-  const stretch = (total / vdur).toFixed(4); // slow the replay to the narrator's pace
-  const args = ['-y', '-i', rawPath];
-  if (voicePath) args.push('-i', voicePath);
-  args.push('-filter_complex',
-    `[0:v]setpts=${stretch}*PTS,fps=30,format=yuv420p[v]` +
-    (voicePath ? `;[1:a]adelay=${VOICE_LEAD * 1000}:all=1,apad[a]` : ''),
-    '-map', '[v]');
-  if (voicePath) args.push('-map', '[a]', '-c:a', 'aac', '-b:a', '160k');
-  args.push('-c:v', 'libx264', '-preset', 'medium', '-crf', '20', '-profile:v', 'high',
-    '-t', total.toFixed(2), '-movflags', '+faststart', join(outDir, name));
-  execFileSync('ffmpeg', args, { stdio: 'inherit' });
-  log(`video ${name}: ${total.toFixed(1)}s`);
-}
-
 await writeFile(join(outDir, 'meta.json'), JSON.stringify({
-  date, dayName: result.dayName, video: name, voiced: !!voicePath, made: new Date().toISOString(),
+  date, dayName: info.dayName, video: name, voiced: !!voicePath, made: new Date().toISOString(),
 }, null, 2));
 log('done');

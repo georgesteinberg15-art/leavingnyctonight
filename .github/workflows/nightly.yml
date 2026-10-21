@@ -86,7 +86,7 @@ jobs:
           ELEVENLABS_API_KEY: ${{ secrets.ELEVENLABS_API_KEY }}
         run: |
           node scripts/nightly.mjs --date "${{ steps.plan.outputs.date }}" --out _site/tonight
-          rm -f _site/tonight/raw.* _site/tonight/voice.mp3
+          rm -f _site/tonight/voice.mp3
 
       - uses: actions/upload-pages-artifact@v3
         if: steps.plan.outputs.deploy == 'true'

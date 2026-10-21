@@ -545,8 +545,10 @@ async function makePost() {
   showPost({ imgSrc: cv.toDataURL('image/png'), filename: `leaving-nyc-${state.today}.png`, caption: b.caption });
 }
 
-// Records the evening rush (3–8pm, or as much of it as has happened) as a short video.
-async function makeVideo(onProgress = () => {}) {
+// Sets up the evening-rush animation (3–8pm, or as much of it as has happened).
+// Returns { canvas, totalMs, drawAt(ms), close() }: drawAt paints the frame for that moment.
+// The site records it live (makeVideo); the nightly job steps through it frame by frame.
+async function prepareVideo(onProgress = () => {}) {
   await document.fonts.ready;
   let from = Math.floor(EVENING[0] / SLOT_MIN);
   const to = Math.min(state.nowSlot, Math.floor(EVENING[1] / SLOT_MIN));
@@ -571,21 +573,11 @@ async function makeVideo(onProgress = () => {}) {
   state.slot = wasSlot;
   render();
 
-  // 2. Play the frames back onto a canvas while recording it.
   const cv = Object.assign(document.createElement('canvas'), { width: POST_W, height: POST_H });
   const ctx = cv.getContext('2d');
-  const mime = ['video/mp4;codecs=avc1.640028', 'video/mp4', 'video/webm;codecs=vp9', 'video/webm']
-    .find((m) => MediaRecorder.isTypeSupported(m));
-  if (!mime) throw new Error('this browser cannot record video');
-  const stream = cv.captureStream(VIDEO_FPS);
-  const rec = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: 8_000_000 });
-  const chunks = [];
-  rec.ondataavailable = (e) => e.data.size && chunks.push(e.data);
-  const stopped = new Promise((res) => { rec.onstop = res; });
-
   const dayName = buildBulletin().dayName;
   const valueAt = (c, s) => crossingAt(c, s);
-  const drawAt = (t) => {
+  const drawSlots = (t) => {
     // t = position in slots (fractional), 0 … slots.length - 1
     const i = Math.min(slots.length - 1, Math.floor(t));
     const f = i < slots.length - 1 ? t - i : 0;
@@ -613,24 +605,42 @@ async function makeVideo(onProgress = () => {}) {
       }),
     });
   };
+  const totalMs = (slots.length - 1) * VIDEO_SLOT_MS + VIDEO_END_HOLD_MS;
+  return {
+    canvas: cv,
+    totalMs,
+    drawAt: (ms) => drawSlots(Math.min(slots.length - 1, ms / VIDEO_SLOT_MS)),
+    close: () => frames.forEach((f) => f.close()),
+  };
+}
 
-  drawAt(0);
+// Records the animation live in the browser (the "Make Instagram video" button).
+async function makeVideo(onProgress = () => {}) {
+  const vid = await prepareVideo(onProgress);
+  const mime = ['video/mp4;codecs=avc1.640028', 'video/mp4', 'video/webm;codecs=vp9', 'video/webm']
+    .find((m) => MediaRecorder.isTypeSupported(m));
+  if (!mime) throw new Error('this browser cannot record video');
+  const rec = new MediaRecorder(vid.canvas.captureStream(VIDEO_FPS), { mimeType: mime, videoBitsPerSecond: 8_000_000 });
+  const chunks = [];
+  rec.ondataavailable = (e) => e.data.size && chunks.push(e.data);
+  const stopped = new Promise((res) => { rec.onstop = res; });
+
+  vid.drawAt(0);
   rec.start();
-  const total = (slots.length - 1) * VIDEO_SLOT_MS;
   const t0 = performance.now();
   await new Promise((res) => {
     const tick = () => {
       const el = performance.now() - t0;
-      drawAt(Math.min(slots.length - 1, el / VIDEO_SLOT_MS));
-      onProgress(`Recording ${Math.min(100, Math.round((el / (total + VIDEO_END_HOLD_MS)) * 100))}%…`);
-      if (el >= total + VIDEO_END_HOLD_MS) return res();
+      vid.drawAt(el);
+      onProgress(`Recording ${Math.min(100, Math.round((el / vid.totalMs) * 100))}%…`);
+      if (el >= vid.totalMs) return res();
       setTimeout(tick, 1000 / VIDEO_FPS); // not rAF: keeps going if the tab is in the background
     };
     tick();
   });
   rec.stop();
   await stopped;
-  frames.forEach((f) => f.close());
+  vid.close();
 
   const blob = new Blob(chunks, { type: mime.split(';')[0] });
   const ext = mime.startsWith('video/mp4') ? 'mp4' : 'webm';
