@@ -102,10 +102,13 @@ if (process.env.ELEVENLABS_API_KEY) {
 const name = `leavingnyctonight-${date}.mp4`;
 if (!process.argv.includes('--no-mux')) {
   const dur = (f) => parseFloat(execFileSync('ffprobe', ['-v', 'error', '-show_entries', 'format=duration', '-of', 'csv=p=0', f]).toString());
-  // MediaRecorder files often have no duration in the header; count frames instead.
-  const frames = parseInt(execFileSync('ffprobe', ['-v', 'error', '-count_frames', '-select_streams', 'v:0',
-    '-show_entries', 'stream=nb_read_frames', '-of', 'csv=p=0', rawPath]).toString(), 10);
-  const vdur = frames / 30;
+  // MediaRecorder files often have no duration in the header, and a slow machine records fewer
+  // frames than asked for, so read the real length from the last frame's timestamp.
+  const stamps = execFileSync('ffprobe', ['-v', 'error', '-select_streams', 'v:0',
+    '-show_entries', 'packet=pts_time', '-of', 'csv=p=0', rawPath]).toString()
+    .split('\n').map(parseFloat).filter(Number.isFinite);
+  const vdur = Math.max(...stamps);
+  log(`recorded ${stamps.length} frames over ${vdur.toFixed(1)}s`);
   const total = voicePath ? Math.max(vdur, VOICE_LEAD + dur(voicePath) + VOICE_TAIL) : vdur;
   const stretch = (total / vdur).toFixed(4); // slow the replay to the narrator's pace
   const args = ['-y', '-i', rawPath];
