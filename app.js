@@ -16,18 +16,22 @@ const REFRESH_MS = 3 * 60 * 1000;
 // mode 'sum' = segments in a row (add their delays), 'avg' = parallel tubes/levels.
 const CROSSINGS = [
   { group: 'manhattan', name: 'Lincoln Tunnel', to: 'to New Jersey', mode: 'avg', links: ['4329508', '4329507'] },
-  { group: 'manhattan', name: 'George Washington Br.', to: 'Henry Hudson → NJ', mode: 'sum', links: ['4620343'] },
+  { group: 'manhattan', name: 'George Washington Br.', say: 'the G-W-B from the West Side', to: 'Henry Hudson → NJ', mode: 'sum', links: ['4620343'] },
   { group: 'manhattan', name: 'Brooklyn-Battery Tunnel', to: 'West St → Brooklyn', mode: 'sum', links: ['4456494', '4456502'] },
   { group: 'manhattan', name: 'Brooklyn Bridge', to: 'FDR → Brooklyn', mode: 'sum', links: ['4616341'] },
   { group: 'manhattan', name: 'Queens-Midtown Tunnel', to: 'to Queens', mode: 'sum', links: ['4456511'] },
-  { group: 'manhattan', name: 'RFK Bridge', to: 'FDR → Queens / Bronx', mode: 'sum', links: ['4456450'] },
-  { group: 'city', name: 'GWB from the Bronx', to: 'Cross Bronx → NJ', mode: 'avg', links: ['4620331', '4620332'] },
-  { group: 'city', name: 'Major Deegan north', to: 'to the Thruway', mode: 'sum', links: ['4575278'] },
-  { group: 'city', name: 'Verrazzano', to: 'Brooklyn → Staten Island', mode: 'sum', links: ['4763657', '4763649'] },
+  { group: 'manhattan', name: 'RFK Bridge', say: 'the R-F-K Bridge', to: 'FDR → Queens / Bronx', mode: 'sum', links: ['4456450'] },
+  { group: 'city', name: 'GWB from the Bronx', say: 'the Cross Bronx to the G-W-B', to: 'Cross Bronx → NJ', mode: 'avg', links: ['4620331', '4620332'] },
+  { group: 'city', name: 'Major Deegan north', say: 'the Major Deegan', to: 'to the Thruway', mode: 'sum', links: ['4575278'] },
+  { group: 'city', name: 'Verrazzano', say: 'the Verrazzano', to: 'Brooklyn → Staten Island', mode: 'sum', links: ['4763657', '4763649'] },
   { group: 'city', name: 'Bayonne Bridge', to: 'Staten Island → NJ', mode: 'sum', links: ['4329499'] },
-  { group: 'city', name: 'Long Island', to: 'Belt / Cross Island east', mode: 'avg', links: ['4616355', '4616352'] },
+  { group: 'city', name: 'Long Island', say: 'the drive out to Long Island', to: 'Belt / Cross Island east', mode: 'avg', links: ['4616355', '4616352'] },
   { group: 'city', name: 'Throgs Neck', to: 'Queens → Bronx / New England', mode: 'sum', links: ['4456505'] },
 ];
+
+// ?date=YYYY-MM-DD shows a finished past day (used by the nightly video job, handy for re-runs).
+const DATE_PARAM = /^\d{4}-\d{2}-\d{2}$/.test(new URLSearchParams(location.search).get('date') || '')
+  ? new URLSearchParams(location.search).get('date') : null;
 
 const NYC_BOUNDS = [[-74.26, 40.56], [-73.72, 40.92]];
 
@@ -162,7 +166,7 @@ async function loadToday() {
   if (state.rowsDate !== state.today) { state.rows = []; state.lastSeen = `${state.today}T00:00:00`; state.rowsDate = state.today; }
   const rows = await soql({
     $select: 'link_id,speed,travel_time,data_as_of',
-    $where: `data_as_of > '${state.lastSeen}'`,
+    $where: `data_as_of > '${state.lastSeen}' AND data_as_of < '${shiftDate(state.today, 1)}T00:00:00'`,
     $limit: 50000,
   });
   for (const r of rows) {
@@ -356,7 +360,7 @@ function buildBulletin() {
     if (runners.length) lines.push('Also rough: ' + runners.map((r) => `${r.c.name} (${fmtDelay(r.peak.delay)} at ${fmtTime(r.peak.slot * SLOT_MIN)})`).join(', ') + '.');
     lines.push(`Smoothest: the <b>${best.c.name}</b>, never worse than ${fmtDelay(best.peak.delay)}.`);
   }
-  lines.push(jammedNow.length
+  if (!DATE_PARAM) lines.push(jammedNow.length
     ? `Right now (${fmtTime(nyParts().minutes)}): still slow on ${jammedNow.map((r) => `${r.c.name} ${fmtDelay(r.now.delay)}`).join(', ')}.`
     : `Right now (${fmtTime(nyParts().minutes)}): every way out is moving.`);
 
@@ -364,6 +368,37 @@ function buildBulletin() {
   const caption = `${BRAND} — ${dayName}\n\n${plain.join('\n\n')}\n\nLive map: link in bio.\n#nyc #nyctraffic #lincolntunnel #gwb #commute`;
   return { html: lines.map((l) => `<p>${l}</p>`).join(''), lines: plain, caption, dayName, rows };
 }
+
+// Voiceover text for the nightly video (read by ElevenLabs).
+function spokenScript() {
+  const b = buildBulletin();
+  const weekday = new Date(state.today + 'T12:00:00Z').toLocaleDateString('en-US', { weekday: 'long', timeZone: 'UTC' });
+  const say = (r) => r.c.say || `the ${r.c.name}`;
+  const mins = (sec) => Math.round(sec / 60);
+  const when = (slot) => {
+    const m = slot * SLOT_MIN, h = ((Math.floor(m / 60) + 11) % 12) + 1, mm = m % 60;
+    return mm === 0 ? `${h} o'clock` : `${h}:${String(mm).padStart(2, '0')}`;
+  };
+  const rows = b.rows || [];
+  const out = [`Leaving New York, ${weekday} night.`];
+  if (!rows.length || mins(rows[0].peak.delay) < 3) {
+    out.push(`An easy one. Nothing worse than ${Math.max(1, mins(rows[0]?.peak.delay || 0))} extra minutes on any way out.`);
+  } else {
+    const [w, ...rest] = rows;
+    out.push(`The worst way out was ${say(w)}: ${mins(w.peak.delay)} extra minutes at ${when(w.peak.slot)}.`);
+    const rough = rest.filter((r) => mins(r.peak.delay) >= 3).slice(0, 2);
+    if (rough.length === 2) {
+      out.push(`${cap(say(rough[0]))} peaked at ${mins(rough[0].peak.delay)} minutes around ${when(rough[0].peak.slot)}, and ${say(rough[1])} hit ${mins(rough[1].peak.delay)}.`);
+    } else if (rough.length === 1) {
+      out.push(`${cap(say(rough[0]))} peaked at ${mins(rough[0].peak.delay)} minutes around ${when(rough[0].peak.slot)}.`);
+    }
+    const best = rows[rows.length - 1];
+    if (best !== w) out.push(`Smoothest ride? ${cap(say(best))}.`);
+  }
+  out.push('Drive safe.');
+  return out.join(' ');
+}
+const cap = (t) => t[0].toUpperCase() + t.slice(1);
 
 // ---------- Instagram card + video (1080 x 1350) ----------
 const POST_W = 1080, POST_H = 1350, MAP_H = 760;
@@ -638,7 +673,7 @@ $('makeVideo').onclick = async () => {
 $('closeModal').onclick = () => { $('postModal').hidden = true; $('postVideo').pause(); };
 
 async function refresh() {
-  const p = nyParts();
+  const p = DATE_PARAM ? { date: DATE_PARAM, minutes: 24 * 60 - 1 } : nyParts();
   state.today = p.date;
   state.nowSlot = Math.floor(p.minutes / SLOT_MIN);
   await loadToday();
@@ -653,13 +688,14 @@ async function refresh() {
 
 (async function init() {
   try {
-    state.today = nyParts().date;
+    state.today = DATE_PARAM || nyParts().date;
     const mapReady = new Promise((res) => map.on('load', res));
     await Promise.all([loadGeometry(), loadBaseline()]);
     await refresh();
     await mapReady;
     addRoadLayers();
-    setInterval(() => refresh().catch(console.error), REFRESH_MS);
+    if (!DATE_PARAM) setInterval(() => refresh().catch(console.error), REFRESH_MS);
+    window.leavingReady = true; // signal for the nightly video job
   } catch (e) {
     console.error(e);
     $('dateline').textContent = 'Could not load NYC traffic data: ' + e.message;
