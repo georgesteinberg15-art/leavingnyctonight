@@ -25,7 +25,7 @@ const CROSSINGS = [
   { group: 'city', name: 'Major Deegan north', say: 'the Major Deegan', to: 'to the Thruway', mode: 'sum', links: ['4575278'] },
   { group: 'city', name: 'Verrazzano', say: 'the Verrazzano', to: 'Brooklyn → Staten Island', mode: 'sum', links: ['4763657', '4763649'] },
   { group: 'city', name: 'Bayonne Bridge', to: 'Staten Island → NJ', mode: 'sum', links: ['4329499'] },
-  { group: 'city', name: 'Long Island', say: 'the drive out to Long Island', to: 'Belt / Cross Island east', mode: 'avg', links: ['4616355', '4616352'] },
+  { group: 'city', name: 'Long Island', noThe: true, say: 'the drive out to Long Island', to: 'Belt / Cross Island east', mode: 'avg', links: ['4616355', '4616352'] },
   { group: 'city', name: 'Throgs Neck', to: 'Queens → Bronx / New England', mode: 'sum', links: ['4456505'] },
 ];
 
@@ -353,12 +353,12 @@ function buildBulletin() {
 
   const lines = [];
   lines.push(worst.peak.delay >= 120
-    ? `Worst way out ${label}: the <b>${worst.c.name}</b>, ${fmtDelay(worst.peak.delay)} at ${fmtTime(worst.peak.slot * SLOT_MIN)}.`
+    ? `Worst way out ${label}: ${worst.c.noThe ? '' : 'the '}<b>${worst.c.name}</b>, ${fmtDelay(worst.peak.delay)} at ${fmtTime(worst.peak.slot * SLOT_MIN)}.`
     : `Easy going ${label}: nothing worse than ${fmtDelay(worst.peak.delay)} on any way out.`);
   if (rows.length > 1 && worst.peak.delay >= 120) {
     const runners = rows.slice(1, 3).filter((r) => r.peak.delay >= 120);
     if (runners.length) lines.push('Also rough: ' + runners.map((r) => `${r.c.name} (${fmtDelay(r.peak.delay)} at ${fmtTime(r.peak.slot * SLOT_MIN)})`).join(', ') + '.');
-    lines.push(`Smoothest: the <b>${best.c.name}</b>, never worse than ${fmtDelay(best.peak.delay)}.`);
+    lines.push(`Smoothest: ${best.c.noThe ? '' : 'the '}<b>${best.c.name}</b>, never worse than ${fmtDelay(best.peak.delay)}.`);
   }
   if (!DATE_PARAM) lines.push(jammedNow.length
     ? `Right now (${fmtTime(nyParts().minutes)}): still slow on ${jammedNow.map((r) => `${r.c.name} ${fmtDelay(r.now.delay)}`).join(', ')}.`
