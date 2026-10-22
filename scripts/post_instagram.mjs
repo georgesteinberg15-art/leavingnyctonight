@@ -47,6 +47,15 @@ if (!head.ok) throw new Error(`video not reachable: ${head.status}`);
 
 const me = await ig('GET', '/me', { fields: 'user_id,username' });
 log(`account @${me.username}, video ${videoUrl} (${(+head.headers.get('content-length') / 1e6).toFixed(1)} MB)`);
+
+// Never post the same night twice (scheduled runs can start late and overlap a manual one).
+const recent = await ig('GET', `/${me.user_id}/media`, { fields: 'caption,permalink', limit: '10' });
+const dup = (recent.data || []).find((m) => (m.caption || '').includes(meta.dayName));
+if (dup) {
+  log(`already posted for ${meta.dayName}: ${dup.permalink}`);
+  console.log('posted:', dup.permalink); // lets the workflow record it as done
+  process.exit(0);
+}
 log('caption:\n' + caption);
 
 if (dryRun) {
