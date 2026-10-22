@@ -6,9 +6,13 @@ on:
   push:
     branches: [main]
   schedule:
-    # 8:25pm New York in summer (EDT) and in winter (EST); the job skips whichever run is early or a repeat.
+    # From 8:25pm New York (EDT or EST) with backup tries every 30 min, since GitHub often starts
+    # scheduled runs late; runs before 8pm NY or after tonight's video exists skip themselves.
     - cron: '25 0 * * *'
+    - cron: '55 0 * * *'
     - cron: '25 1 * * *'
+    - cron: '55 1 * * *'
+    - cron: '25 2 * * *'
   workflow_dispatch:
     inputs:
       date:

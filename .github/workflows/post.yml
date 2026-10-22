@@ -8,9 +8,11 @@ name: Post to Instagram
 
 on:
   schedule:
-    # 9:35pm New York in summer (EDT) and in winter (EST); the early/repeat run skips itself.
+    # From 9:35pm New York (EDT or EST) with backup tries every 30 min — GitHub often starts
+    # scheduled runs late or drops them. Runs outside 9–11pm NY, or after a post, skip themselves.
     - cron: '35 1 * * *'
-    - cron: '35 2 * * *'
+    - cron: '5,35 2,3 * * *'
+    - cron: '5 4 * * *'
   workflow_dispatch:
     inputs:
       date:
@@ -47,7 +49,7 @@ jobs:
           if [ "${{ github.event_name }}" = workflow_dispatch ]; then
             GO=true; DATE="${{ inputs.date }}"; DATE=${DATE:-$NY_DATE}
             [ "${{ inputs.dry_run }}" = true ] && DRY=--dry-run
-          elif [ "$NY_HOUR" -ge 21 ] && [ "$LAST" != "$NY_DATE" ]; then
+          elif [ "$NY_HOUR" -ge 21 ] && [ "$NY_HOUR" -le 23 ] && [ "$LAST" != "$NY_DATE" ]; then
             GO=true
           fi
           if [ -z "$DRY" ] && [ "$LAST" = "$DATE" ]; then echo "already posted $DATE"; GO=false; fi
