@@ -33,6 +33,10 @@ const CROSSINGS = [
 const DATE_PARAM = /^\d{4}-\d{2}-\d{2}$/.test(new URLSearchParams(location.search).get('date') || '')
   ? new URLSearchParams(location.search).get('date') : null;
 
+// The Instagram buttons are only for the account owner: add ?studio to the address to see them.
+// (Just hidden, not secret — anyone could add ?studio, but nothing they make gets posted.)
+const STUDIO = new URLSearchParams(location.search).has('studio');
+
 const NYC_BOUNDS = [[-74.26, 40.56], [-73.72, 40.92]];
 
 // ---------- helpers ----------
@@ -211,8 +215,8 @@ function linkAt(id, slot) {
   const v = state.history.get(id)?.[slot];
   const b = state.baseline.get(id);
   if (!v || !b) return null;
-  if (v.speed < CLOSED_MPH) return { ratio: 0, delay: 0, closed: true };
-  return { ratio: Math.min(1, v.speed / b.speed), delay: Math.max(0, v.tt - b.tt) };
+  if (v.speed < CLOSED_MPH) return { ratio: 0, delay: 0, closed: true, speed: v.speed, normal: b.speed };
+  return { ratio: Math.min(1, v.speed / b.speed), delay: Math.max(0, v.tt - b.tt), speed: v.speed, normal: b.speed };
 }
 function crossingAt(c, slot) {
   const parts = c.links.map((id) => linkAt(id, slot)).filter(Boolean);
@@ -221,7 +225,9 @@ function crossingAt(c, slot) {
   const ratio = Math.min(...parts.filter((p) => !p.closed).map((p) => p.ratio));
   const delays = parts.filter((p) => !p.closed).map((p) => p.delay);
   const delay = c.mode === 'avg' ? delays.reduce((a, b) => a + b, 0) / delays.length : delays.reduce((a, b) => a + b, 0);
-  return { ratio, delay };
+  // speed shown to people: the slowest stretch of the route right now vs. its usual speed
+  const slowest = parts.filter((p) => !p.closed).reduce((a, b) => (b.ratio < a.ratio ? b : a));
+  return { ratio, delay, speed: slowest.speed, normal: slowest.normal };
 }
 function peakOf(c, fromMin, toMin) {
   let best = null;
@@ -253,6 +259,7 @@ function roadsGeoJSON() {
         properties: {
           id, name: l.name, color: colorFor(v?.ratio), crossing: crossingLinks.has(id), closed: !!v?.closed,
           ratio: v ? Math.round(v.ratio * 100) : null, delay: v ? Math.round(v.delay / 60) : null,
+          mph: v ? Math.round(v.speed) : null, usual: v ? Math.round(v.normal) : null,
         },
         geometry: { type: 'LineString', coordinates: l.coords },
       };
@@ -274,7 +281,7 @@ function addRoadLayers() {
     const p = e.features[0].properties;
     map.getCanvas().style.cursor = 'pointer';
     const info = p.closed ? 'barely moving — likely closed'
-      : p.ratio == null || p.ratio === 'null' ? 'no reading' : `${p.ratio}% of normal speed · ${fmtDelay(p.delay * 60)}`;
+      : p.ratio == null || p.ratio === 'null' ? 'no reading' : `${p.mph} mph · usually ${p.usual} · ${fmtDelay(p.delay * 60)}`;
     popup.setLngLat(e.lngLat).setHTML(`<b>${p.name}</b><br>${info}`).addTo(map);
   });
   map.on('mouseleave', 'roads', () => { map.getCanvas().style.cursor = ''; popup.remove(); });
@@ -291,7 +298,7 @@ function renderCrossings() {
       const li = document.createElement('li');
       li.innerHTML = `
         <div class="dot" style="background:${colorFor(v?.ratio)}"></div>
-        <div><div class="name">${c.name}</div><div class="to">${c.to}</div></div>
+        <div><div class="name">${c.name}</div><div class="to">${c.to}</div>${v && !v.closed ? `<div class="mph">${Math.round(v.speed)} mph ${state.live ? 'now' : 'at ' + fmtTime(state.slot * SLOT_MIN)} · usually ${Math.round(v.normal)}</div>` : ''}</div>
         <div class="delay">${!v ? '<small>no feed</small>' : v.closed ? 'closed?' : fmtDelay(v.delay)}<small>${peak && peak.delay > 60 ? 'peak ' + fmtDelay(peak.delay) + ' @ ' + fmtTime(peak.slot * SLOT_MIN) : ''}</small></div>
         <canvas width="600" height="36"></canvas>`;
       li.onclick = () => flyTo(c);
@@ -672,8 +679,8 @@ $('play').onclick = () => {
     render();
   }, 120);
 };
-$('makePost').onclick = () => makePost().catch((e) => alert('Could not make the image: ' + e.message));
-$('makeVideo').onclick = async () => {
+if (STUDIO) $('makePost').onclick = () => makePost().catch((e) => alert('Could not make the image: ' + e.message));
+if (STUDIO) $('makeVideo').onclick = async () => {
   const btn = $('makeVideo');
   btn.disabled = true;
   try { await makeVideo((msg) => { btn.textContent = msg; }); }
@@ -697,6 +704,7 @@ async function refresh() {
 }
 
 (async function init() {
+  if (!STUDIO) { $('makeVideo').remove(); $('makePost').remove(); }
   try {
     state.today = DATE_PARAM || nyParts().date;
     const mapReady = new Promise((res) => map.on('load', res));
