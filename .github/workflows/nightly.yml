@@ -18,6 +18,10 @@ on:
       date:
         description: 'Day to make a video for (YYYY-MM-DD). Blank = today in New York.'
         required: false
+      if_missing:
+        description: 'Only make it if that day has no video yet (used by the cron-job.org timer)'
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -47,7 +51,9 @@ jobs:
           LIVE_DATE=$(curl -fsS "$SITE/tonight/meta.json" | jq -r .date || echo none)
           MAKE=false; DEPLOY=true; DATE=""
           case "${{ github.event_name }}" in
-            workflow_dispatch) MAKE=true; DATE="${{ inputs.date }}"; DATE=${DATE:-$NY_DATE} ;;
+            workflow_dispatch)
+              MAKE=true; DATE="${{ inputs.date }}"; DATE=${DATE:-$NY_DATE}
+              if [ "${{ inputs.if_missing }}" = true ] && [ "$LIVE_DATE" = "$DATE" ]; then MAKE=false; DEPLOY=false; fi ;;
             schedule)
               if [ "$NY_HOUR" -ge 20 ] && [ "$LIVE_DATE" != "$NY_DATE" ]; then MAKE=true; DATE=$NY_DATE; else DEPLOY=false; fi ;;
           esac
