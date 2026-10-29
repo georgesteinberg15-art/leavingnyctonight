@@ -13,7 +13,7 @@ import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import { execFileSync, spawn } from 'node:child_process';
 import { extname, join, resolve } from 'node:path';
 
-const VOICE_ID = 'onwK4e9ZLuTAKqWW03F9'; // Daniel
+const VOICE_ID = 'dqbqOZM4uhsyx1WtTAgT'; // Max – 1940s RP British (newsreel announcer)
 const VOICE_LEAD = 0.4, VOICE_TAIL = 0.8; // seconds of quiet before / after the voice
 const FPS = 30, BATCH = 15;
 
