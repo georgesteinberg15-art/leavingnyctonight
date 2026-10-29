@@ -346,6 +346,33 @@ function render() {
 }
 
 // ---------- bulletin ----------
+// A quick nod to what else was on in the city (games, big parades, rain). The nightly job
+// sets window.CITY_EVENTS from scripts/events.mjs; the live site has none and skips this.
+// "Small wonder" only when the event's crowd shares one of the three slowest routes around
+// its peak time; otherwise it just gets a mention.
+function eventNod(rows) {
+  const { events = [], weather = null } = window.CITY_EVENTS || {};
+  if (!rows.length) return null;
+  const bad = rows[0].peak.delay >= 180;
+  const rain = bad && weather ? { caption: `The ${weather} didn't help.`, spoken: `And the ${weather} didn't help.` } : null;
+  const fits = (e, r) => e.near.includes(r.c.name)
+    && (e.kind !== 'game' || (r.peak.slot * SLOT_MIN >= e.start - 150 && r.peak.slot * SLOT_MIN <= e.start + 210));
+  for (const r of rows.slice(0, 3).filter((r) => r.peak.delay >= 180)) {
+    const e = events.find((e) => fits(e, r));
+    if (!e) continue;
+    if (r === rows[0]) return { onWorst: true, caption: `Small wonder: ${e.caption}.`, spoken: `Small wonder, with ${e.spoken}.`, rain };
+    const name = `${r.c.noThe ? '' : 'the '}${r.c.name}`, said = r.c.say || `the ${r.c.name}`;
+    return { onWorst: false, caption: `Small wonder ${name} was slow: ${e.caption}.`, spoken: `Small wonder ${said} was slow, with ${e.spoken}.`, rain };
+  }
+  if (!events.length) return rain && { onWorst: true, rain };
+  // Otherwise mention the event whose nearby routes had the roughest evening.
+  const hit = (e) => Math.max(0, ...rows.filter((r) => e.near.includes(r.c.name)).map((r) => r.peak.delay));
+  const e = [...events].sort((a, b) => hit(b) - hit(a))[0];
+  return bad
+    ? { onWorst: true, caption: `Also on: ${e.caption}.`, spoken: `Also on tonight: ${e.spoken}.`, rain }
+    : { onWorst: true, caption: `Even with ${e.caption} on.`, spoken: `Even with ${e.spoken}.`, rain };
+}
+
 function buildBulletin() {
   const [from, to] = state.nowSlot * SLOT_MIN >= EVENING[0] ? EVENING : [6 * 60, 24 * 60];
   const label = from === EVENING[0] ? 'tonight' : 'so far today';
@@ -371,8 +398,14 @@ function buildBulletin() {
     ? `Right now (${fmtTime(nyParts().minutes)}): still slow on ${jammedNow.map((r) => `${r.c.name} ${fmtDelay(r.now.delay)}`).join(', ')}.`
     : `Right now (${fmtTime(nyParts().minutes)}): every way out is moving.`);
 
+  const nod = eventNod(rows);
+  if (nod?.rain) lines[0] += ' ' + nod.rain.caption;
+  if (nod?.caption) lines[nod.onWorst ? 0 : 1] += ' ' + nod.caption;
+
+  // Caption: the news goes first, since the feed only shows ~125 characters before "more".
   const plain = lines.map((l) => l.replace(/<\/?b>/g, ''));
-  const caption = `${BRAND} — ${dayName}\n\n${plain.join('\n\n')}\n\nLive map: link in bio.\n#nyc #nyctraffic #lincolntunnel #gwb #commute`;
+  const caption = `${plain.join('\n\n')}\n\nWhich way did you go tonight?\n\n`
+    + `${BRAND} · ${dayName} · live map: link in bio\n#nyc #nyctraffic #lincolntunnel #gwb #commute`;
   return { html: lines.map((l) => `<p>${l}</p>`).join(''), lines: plain, caption, dayName, rows };
 }
 
@@ -387,18 +420,23 @@ function spokenScript() {
     return mm === 0 ? `${h} o'clock` : `${h}:${String(mm).padStart(2, '0')}`;
   };
   const rows = b.rows || [];
+  const nod = eventNod(rows);
   const out = [`Leaving New York, ${weekday} night.`];
   if (!rows.length || mins(rows[0].peak.delay) < 3) {
     out.push(`An easy one. Nothing worse than ${Math.max(1, mins(rows[0]?.peak.delay || 0))} extra minutes on any way out.`);
+    if (nod?.spoken) out.push(nod.spoken);
   } else {
     const [w, ...rest] = rows;
     out.push(`The worst way out was ${say(w)}: ${mins(w.peak.delay)} extra minutes at ${when(w.peak.slot)}.`);
+    if (nod?.rain) out.push(nod.rain.spoken);
+    if (nod?.onWorst && nod.spoken) out.push(nod.spoken);
     const rough = rest.filter((r) => mins(r.peak.delay) >= 3).slice(0, 2);
     if (rough.length === 2) {
       out.push(`${cap(say(rough[0]))} peaked at ${mins(rough[0].peak.delay)} minutes around ${when(rough[0].peak.slot)}, and ${say(rough[1])} hit ${mins(rough[1].peak.delay)}.`);
     } else if (rough.length === 1) {
       out.push(`${cap(say(rough[0]))} peaked at ${mins(rough[0].peak.delay)} minutes around ${when(rough[0].peak.slot)}.`);
     }
+    if (nod && !nod.onWorst) out.push(nod.spoken);
     const best = rows[rows.length - 1];
     if (best !== w) out.push(`Smoothest ride? ${cap(say(best))}.`);
   }
