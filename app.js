@@ -229,6 +229,15 @@ function crossingAt(c, slot) {
   const slowest = parts.filter((p) => !p.closed).reduce((a, b) => (b.ratio < a.ratio ? b : a));
   return { ratio, delay, speed: slowest.speed, normal: slowest.normal };
 }
+// Share of the 3–8pm slots that have readings on at least half the ways out (feed-outage check).
+function eveningCoverage() {
+  const from = EVENING[0] / SLOT_MIN, to = EVENING[1] / SLOT_MIN;
+  let ok = 0;
+  for (let s = from; s < to; s++) {
+    if (CROSSINGS.filter((c) => crossingAt(c, s)).length >= CROSSINGS.length / 2) ok++;
+  }
+  return ok / (to - from);
+}
 function peakOf(c, fromMin, toMin) {
   let best = null;
   for (let s = Math.floor(fromMin / SLOT_MIN); s <= Math.min(state.nowSlot, Math.floor(toMin / SLOT_MIN)); s++) {
@@ -392,7 +401,7 @@ function buildBulletin() {
   if (rows.length > 1 && worst.peak.delay >= 120) {
     const runners = rows.slice(1, 3).filter((r) => r.peak.delay >= 120);
     if (runners.length) lines.push('Also rough: ' + runners.map((r) => `${r.c.name} (${fmtDelay(r.peak.delay)} at ${fmtTime(r.peak.slot * SLOT_MIN)})`).join(', ') + '.');
-    lines.push(`Smoothest: ${best.c.noThe ? '' : 'the '}<b>${best.c.name}</b>, never worse than ${fmtDelay(best.peak.delay)}.`);
+    lines.push(`Smoothest: ${best.c.noThe ? '' : 'the '}<b>${best.c.name}</b>, ${best.peak.delay < 30 ? 'clear all evening' : `never worse than ${fmtDelay(best.peak.delay)}`}.`);
   }
   if (!DATE_PARAM) lines.push(jammedNow.length
     ? `Right now (${fmtTime(nyParts().minutes)}): still slow on ${jammedNow.map((r) => `${r.c.name} ${fmtDelay(r.now.delay)}`).join(', ')}.`
