@@ -66,7 +66,7 @@ jobs:
         if: steps.plan.outputs.deploy == 'true'
         run: |
           mkdir -p _site/tonight
-          cp index.html app.js style.css README.md _site/
+          cp index.html app.js style.css README.md backup-links.json _site/
           cp tonight.html _site/tonight/index.html
 
       - name: Keep the current video (no new one this run)
@@ -77,6 +77,14 @@ jobs:
             curl -fsS "$SITE/tonight/caption.txt" -o caption.txt || true
             curl -fsS "$SITE/tonight/$(jq -r .video meta.json)" -o "$(jq -r .video meta.json)" || true
           fi
+
+      - name: Get the TomTom backup readings
+        if: steps.plan.outputs.make == 'true'
+        continue-on-error: true
+        uses: actions/checkout@v4
+        with:
+          ref: data
+          path: data
 
       - uses: actions/setup-node@v4
         if: steps.plan.outputs.make == 'true'

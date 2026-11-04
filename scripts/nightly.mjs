@@ -56,7 +56,7 @@ let info, voicePath = null;
 try {
   const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
   page.on('console', (m) => m.type() === 'error' && log('page error:', m.text()));
-  await page.goto(`http://127.0.0.1:${port}/?date=${date}`);
+  await page.goto(`http://127.0.0.1:${port}/?date=${date}&data=local`);
   await page.waitForFunction(() => window.leavingReady === true, null, { timeout: 120_000 });
   const city = await eventsFor(date);
   log('events:', city.events.map((e) => e.caption).join('; ') || 'none', '· weather:', city.weather || 'dry');

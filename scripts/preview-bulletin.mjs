@@ -26,7 +26,7 @@ try {
   for (const date of process.argv.slice(2)) {
     const page = await browser.newPage();
     page.on('console', (m) => m.type() === 'error' && console.log('page error:', m.text()));
-    await page.goto(`http://127.0.0.1:${server.address().port}/?date=${date}`);
+    await page.goto(`http://127.0.0.1:${server.address().port}/?date=${date}&data=local`);
     await page.waitForFunction(() => window.leavingReady === true, null, { timeout: 120_000 });
     await page.evaluate((c) => { window.CITY_EVENTS = c; }, await eventsFor(date));
     const out = await page.evaluate(() => ({ caption: buildBulletin().caption, script: spokenScript(), coverage: eveningCoverage() }));

@@ -2,6 +2,8 @@
 // Data: NYC DOT Real-Time Traffic Speeds (NYC Open Data, dataset i4gi-tjb9).
 // The dataset keeps every reading (~every 5 min per road segment), so "today's history"
 // comes straight from the source; no backend or API key needed.
+// Backup: where DOT has nothing (dead sensors, feed outages), TomTom readings taken every
+// 20 min by scripts/poll.mjs fill the gaps, from days/YYYY-MM-DD.json on the `data` branch.
 
 const BRAND = 'Leaving NYC';
 const HANDLE = '@leavingnyctonight';
@@ -11,6 +13,7 @@ const SLOT_MIN = 10;                 // history resolution
 const SLOTS = (24 * 60) / SLOT_MIN;
 const EVENING = [15 * 60, 20 * 60];  // window the nightly bulletin talks about
 const REFRESH_MS = 3 * 60 * 1000;
+const REPO = 'georgesteinberg15-art/leavingnyctonight';
 
 // The ways out. Each entry lists the DOT road segments (link_id) on the outbound side.
 // mode 'sum' = segments in a row (add their delays), 'avg' = parallel tubes/levels.
@@ -36,6 +39,11 @@ const DATE_PARAM = /^\d{4}-\d{2}-\d{2}$/.test(new URLSearchParams(location.searc
 // The Instagram buttons are only for the account owner: add ?studio to the address to see them.
 // (Just hidden, not secret — anyone could add ?studio, but nothing they make gets posted.)
 const STUDIO = new URLSearchParams(location.search).has('studio');
+
+// ?data=local reads the backup readings from data/days/ next to the page (the nightly job checks
+// the data branch out there); otherwise straight from GitHub.
+const BACKUP_BASE = new URLSearchParams(location.search).get('data') === 'local'
+  ? 'data/days/' : `https://raw.githubusercontent.com/${REPO}/data/days/`;
 
 const NYC_BOUNDS = [[-74.26, 40.56], [-73.72, 40.92]];
 
@@ -125,10 +133,20 @@ const state = {
   baseline: new Map(),  // link_id -> { speed, tt } at 1–4am
   history: new Map(),   // link_id -> Array(SLOTS) of { speed, tt } | null
   rows: [], rowsDate: null, lastSeen: null,
+  backupLinks: {},      // link_id -> { coords, base, km } from backup-links.json
+  backup: null, backupDate: null, // that day's TomTom readings
 };
 
 // ---------- data loading ----------
+async function loadBackupLinks() {
+  try { state.backupLinks = (await (await fetch('backup-links.json')).json()).links; } catch {}
+}
+
 async function loadGeometry() {
+  // shapes saved in backup-links.json cover roads DOT hasn't sent lately
+  for (const [id, l] of Object.entries(state.backupLinks)) {
+    if (l.coords?.length >= 2) state.links.set(id, { name: l.name, borough: '', coords: l.coords });
+  }
   const since = shiftDate(state.today, -1) + 'T00:00:00';
   const rows = await soql({
     $select: 'link_id,link_name,borough,encoded_poly_line,link_points',
@@ -165,6 +183,32 @@ async function loadBaseline() {
   try { localStorage.setItem(key, JSON.stringify([...state.baseline])); } catch {}
 }
 
+// TomTom backup readings go into slots DOT left empty. TomTom's speed relative to its own
+// free-flow speed is applied to the road's usual DOT speed and travel time, so delays stay on
+// the same scale as DOT's; roads DOT never reports use TomTom's numbers directly.
+async function fillFromBackup(hist) {
+  if (state.backupDate !== state.today || !DATE_PARAM) {
+    try {
+      const r = await fetch(BACKUP_BASE + state.today + '.json', { cache: 'no-cache' });
+      state.backup = r.ok ? await r.json() : null;
+    } catch { state.backup = null; }
+    state.backupDate = state.today;
+  }
+  for (const { t, v } of state.backup?.readings ?? []) {
+    const slot = Math.floor((+t.slice(0, 2) * 60 + +t.slice(3, 5)) / SLOT_MIN);
+    for (const [id, [now, free, closed]] of Object.entries(v)) {
+      if (!hist.has(id)) hist.set(id, new Array(SLOTS).fill(null));
+      const arr = hist.get(id);
+      if (arr[slot] || !free) continue;
+      const km = state.backupLinks[id]?.km || 1;
+      let base = state.baseline.get(id) || state.backupLinks[id]?.base;
+      if (!base) state.baseline.set(id, base = { speed: free, tt: (km / 1.609 / free) * 3600 });
+      const ratio = Math.max(0.05, Math.min(1, now / free));
+      arr[slot] = closed ? { speed: 0.5, tt: base.tt } : { speed: base.speed * ratio, tt: base.tt / ratio };
+    }
+  }
+}
+
 // Readings are kept as raw rows so each refresh only fetches what's new.
 async function loadToday() {
   if (state.rowsDate !== state.today) { state.rows = []; state.lastSeen = `${state.today}T00:00:00`; state.rowsDate = state.today; }
@@ -186,6 +230,7 @@ async function loadToday() {
     stamp.get(r.link_id)[slot] = r.data_as_of;
     hist.get(r.link_id)[slot] = { speed: +r.speed, tt: +r.travel_time };
   }
+  await fillFromBackup(hist);
   // Roads with no overnight readings: use their best 10% of today as "normal".
   for (const [id, arr] of hist) {
     const vals = arr.filter(Boolean);
@@ -755,6 +800,7 @@ async function refresh() {
   try {
     state.today = DATE_PARAM || nyParts().date;
     const mapReady = new Promise((res) => map.on('load', res));
+    await loadBackupLinks();
     await Promise.all([loadGeometry(), loadBaseline()]);
     await refresh();
     await mapReady;
