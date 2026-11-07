@@ -57,7 +57,8 @@
    "probe": {
     "lat": 40.64309,
     "lon": -74.1417
-   }
+   },
+   "segKm": 3.83
   },
   "4329507": {
    "name": "LINCOLN TUNNEL W NORTH TUBE NY - NJ",
@@ -87,7 +88,8 @@
    "probe": {
     "lat": 40.763,
     "lon": -74.0055
-   }
+   },
+   "segKm": 2.7
   },
   "4329508": {
    "name": "LINCOLN TUNNEL W CENTER TUBE NY - NJ",
@@ -113,7 +115,8 @@
    "probe": {
     "lat": 40.76193,
     "lon": -74.007
-   }
+   },
+   "segKm": 2.7
   },
   "4456450": {
    "name": "FDR N - TBB E 116TH STREET - MANHATTAN TRUSS",
@@ -171,7 +174,8 @@
    "probe": {
     "lat": 40.773,
     "lon": -73.9442
-   }
+   },
+   "segKm": 5.99
   },
   "4456494": {
    "name": "West St S Spring St - BBT Manhattan Portal outbound",
@@ -229,7 +233,8 @@
    "probe": {
     "lat": 40.71665,
     "lon": -74.0132
-   }
+   },
+   "segKm": 1.09
   },
   "4456502": {
    "name": "BBT E Manhattan Portal - Toll Plaza",
@@ -295,7 +300,8 @@
    "probe": {
     "lat": 40.694,
     "lon": -74.013
-   }
+   },
+   "segKm": 2.94
   },
   "4456505": {
    "name": "TNB N Queens Anchorage - Toll Plaza",
@@ -353,7 +359,8 @@
    "probe": {
     "lat": 40.80792,
     "lon": -73.79345
-   }
+   },
+   "segKm": 3.0
   },
   "4456511": {
    "name": "QMT E Manhattan Side - Toll Plaza",
@@ -411,7 +418,8 @@
    "probe": {
     "lat": 40.74404,
     "lon": -73.96367
-   }
+   },
+   "segKm": 2.34
   },
   "4575278": {
    "name": "MDE N VAN CORTLAND PARK - NYST N EXIT 1 (MP.48)",
@@ -473,7 +481,8 @@
    "probe": {
     "lat": 40.88871,
     "lon": -73.89021
-   }
+   },
+   "segKm": 0.94
   },
   "4616341": {
    "name": "FDR S Catherine Slip - BKN Bridge Manhattan Side",
@@ -511,7 +520,8 @@
    "probe": {
     "lat": 40.7099,
     "lon": -73.9952
-   }
+   },
+   "segKm": 4.12
   },
   "4616352": {
    "name": "CIP S Hempstead Tpk - Laurelton Pkwy @ SSP",
@@ -573,7 +583,8 @@
    "probe": {
     "lat": 40.69984,
     "lon": -73.72718
-   }
+   },
+   "segKm": 1.33
   },
   "4616355": {
    "name": "Belt Pkwy E 182nd St - Laurelton Pkwy N @ SSP",
@@ -694,7 +705,8 @@
    "probe": {
     "lat": 40.84494,
     "lon": -73.9216
-   }
+   },
+   "segKm": 1.22
   },
   "4620332": {
    "name": "CBE W MORRIS AVE - GWB W AMSTERDAM AVE (L/LVL)",
@@ -744,7 +756,8 @@
    "probe": {
     "lat": 40.84501,
     "lon": -73.92101
-   }
+   },
+   "segKm": 1.22
   },
   "4620343": {
    "name": "Westside Hwy N 57th St - GWB",
@@ -806,7 +819,8 @@
    "probe": {
     "lat": 40.78217,
     "lon": -73.98636
-   }
+   },
+   "segKm": 0.74
   },
   "4763649": {
    "name": "VNB W BROOKLYN GANTRY UPPER LEVEL - SI GANTRY UPPER LEVEL",
@@ -836,7 +850,8 @@
    "probe": {
     "lat": 40.60626,
     "lon": -74.04582
-   }
+   },
+   "segKm": 1.56
   },
   "4763657": {
    "name": "GOW S VNB W 92ND STREET - BKLYN GANTRY LOWER LEVEL",
@@ -878,7 +893,8 @@
    "probe": {
     "lat": 40.61112,
     "lon": -74.03152
-   }
+   },
+   "segKm": 3.96
   }
  }
 }

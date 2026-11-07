@@ -1,3 +1,5 @@
+// One-off: builds backup-links.json (segKm, the length of the stretch TomTom reads at each probe,
+// was added afterwards by hand from `poll.mjs --check`-style lookups; re-add it if you regenerate)
 // One-off: builds backup-links.json from NYC DOT history, so the TomTom backup (scripts/poll.mjs)
 // still has each road's shape, "normal" speed and a probe point when the DOT feed is down.
 //   node scripts/make-backup-links.mjs 2026-10-28      (a normal day with good data)

@@ -200,7 +200,8 @@ async function fillFromBackup(hist) {
       if (!hist.has(id)) hist.set(id, new Array(SLOTS).fill(null));
       const arr = hist.get(id);
       if (arr[slot] || !free) continue;
-      const km = state.backupLinks[id]?.km || 1;
+      // length of the stretch TomTom measures (not the DOT road, which can be much longer)
+      const km = state.backupLinks[id]?.segKm || state.backupLinks[id]?.km || 1;
       let base = state.baseline.get(id) || state.backupLinks[id]?.base;
       if (!base) state.baseline.set(id, base = { speed: free, tt: (km / 1.609 / free) * 3600 });
       const ratio = Math.max(0.05, Math.min(1, now / free));
